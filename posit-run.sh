@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# posit<16,1> through the kwabi runtime, on PostgreSQL.
+# posit<16,1> through the kwabi runtime, on PostgreSQL: the install and bind scripts, the
+# behaviour checks, and the sensor-readings demo (sql/demo.sql).
 #
-#   RUNTIME_BUNDLE=<path to kwabi_runtime_pgNN.<dl>> SCRATCH=<dir> ./posit-run.sh <major>
+#   RUNTIME_BUNDLE=<kwabi_runtime_pgNN.<dl>> SCRATCH=<dir> ./posit-run.sh <major>
 #
-# The runtime bundle comes from kerfwork/kwabi-runtime (make build PG=<major>). This script
-# builds the body (make lib), starts a preloaded cluster, creates the type through the
-# runtime's generic I/O and operator functions, binds the body, and checks behaviour.
+# The runtime bundle comes from kerfwork/kwabi-runtime (make build PG=<major>). Optional:
+# PGBIN (the PostgreSQL bin directory), DLSUFFIX, POSIT_PORT.
 set -euo pipefail
 cd "$(dirname "$0")"
 major="${1:?major}"
@@ -36,49 +36,21 @@ CONF
 "$bin/pg_ctl" -D "$data" -l "$SCRATCH/posit-server-$major.log" -w start >/dev/null
 trap '"$bin/pg_ctl" -D "$data" -m fast stop >/dev/null 2>&1 || true' EXIT
 
-Q() { "$bin/psql" -X -q -At -h 127.0.0.1 -p $port -U postgres -d postgres -c "$1" 2>>"$SCRATCH/posit-$major.stderr"; }
+PSQL=("$bin/psql" -X -q -At -h 127.0.0.1 -p "$port" -U postgres -d postgres -v ON_ERROR_STOP=1)
+Q() { "${PSQL[@]}" -c "$1" 2>>"$SCRATCH/posit-$major.stderr"; }
 # An error's SQLSTATE, or "ok": the statement's value is not needed.
 STATE() {
-  "$bin/psql" -X -q -At -h 127.0.0.1 -p $port -U postgres -d postgres -v ON_ERROR_STOP=1 \
-    -c "DO \$\$ BEGIN EXECUTE \$q\$$1\$q\$; RAISE NOTICE 'state=ok'; EXCEPTION WHEN others THEN RAISE NOTICE 'state=%', SQLSTATE; END \$\$;" 2>&1 \
+  "${PSQL[@]}" -c "DO \$\$ BEGIN EXECUTE \$q\$$1\$q\$; RAISE NOTICE 'state=ok'; EXCEPTION WHEN others THEN RAISE NOTICE 'state=%', SQLSTATE; END \$\$;" 2>&1 \
     | sed -n 's/.*state=//p'
 }
 
-# The runtime's generic functions, the type, and the bind. A name's functions end in _in,
-# _out, or an operator suffix; the binding is the part before the last underscore.
-ops_sql=""
-for f in "eq:boolean" "ne:boolean" "lt:boolean" "le:boolean" "gt:boolean" "ge:boolean" \
-         "add:posit16_1" "sub:posit16_1" "mul:posit16_1" "div:posit16_1" "cmp:int4"; do
-  op=${f%%:*}; ret=${f##*:}
-  ops_sql+="CREATE FUNCTION posit16_1_$op(posit16_1, posit16_1) RETURNS $ret AS '$RUNTIME_BUNDLE', 'kwabi_type_binop' LANGUAGE C IMMUTABLE STRICT;"$'\n'
-done
-"$bin/psql" -X -q -h 127.0.0.1 -p $port -U postgres -d postgres -v ON_ERROR_STOP=1 <<SQL
-CREATE FUNCTION kwabi_hook_test_bind(text, text) RETURNS text AS '$RUNTIME_BUNDLE', 'kwabi_hook_test_bind' LANGUAGE C STRICT;
-CREATE TYPE posit16_1;
-CREATE FUNCTION posit16_1_in(cstring) RETURNS posit16_1 AS '$RUNTIME_BUNDLE', 'kwabi_type_in' LANGUAGE C IMMUTABLE STRICT;
-CREATE FUNCTION posit16_1_out(posit16_1) RETURNS cstring AS '$RUNTIME_BUNDLE', 'kwabi_type_out' LANGUAGE C IMMUTABLE STRICT;
-CREATE TYPE posit16_1 (INPUT = posit16_1_in, OUTPUT = posit16_1_out, INTERNALLENGTH = 8,
-                       PASSEDBYVALUE, ALIGNMENT = double);
-$ops_sql
-CREATE OPERATOR = (LEFTARG = posit16_1, RIGHTARG = posit16_1, FUNCTION = posit16_1_eq, COMMUTATOR = =, NEGATOR = <>);
-CREATE OPERATOR <> (LEFTARG = posit16_1, RIGHTARG = posit16_1, FUNCTION = posit16_1_ne, COMMUTATOR = <>, NEGATOR = =);
-CREATE OPERATOR < (LEFTARG = posit16_1, RIGHTARG = posit16_1, FUNCTION = posit16_1_lt, COMMUTATOR = >, NEGATOR = >=);
-CREATE OPERATOR <= (LEFTARG = posit16_1, RIGHTARG = posit16_1, FUNCTION = posit16_1_le, COMMUTATOR = >=, NEGATOR = >);
-CREATE OPERATOR > (LEFTARG = posit16_1, RIGHTARG = posit16_1, FUNCTION = posit16_1_gt, COMMUTATOR = <, NEGATOR = <=);
-CREATE OPERATOR >= (LEFTARG = posit16_1, RIGHTARG = posit16_1, FUNCTION = posit16_1_ge, COMMUTATOR = <=, NEGATOR = <);
-CREATE OPERATOR + (LEFTARG = posit16_1, RIGHTARG = posit16_1, FUNCTION = posit16_1_add, COMMUTATOR = +);
-CREATE OPERATOR - (LEFTARG = posit16_1, RIGHTARG = posit16_1, FUNCTION = posit16_1_sub);
-CREATE OPERATOR * (LEFTARG = posit16_1, RIGHTARG = posit16_1, FUNCTION = posit16_1_mul, COMMUTATOR = *);
-CREATE OPERATOR / (LEFTARG = posit16_1, RIGHTARG = posit16_1, FUNCTION = posit16_1_div);
-CREATE OPERATOR CLASS posit16_1_ops DEFAULT FOR TYPE posit16_1 USING btree AS
-  OPERATOR 1 <, OPERATOR 2 <=, OPERATOR 3 =, OPERATOR 4 >=, OPERATOR 5 >,
-  FUNCTION 1 posit16_1_cmp(posit16_1, posit16_1);
-SQL
-
-check "bind the body" "bound" "$(Q "SELECT kwabi_hook_test_bind('posit16_1', '$body')")"
+# The type, then the body. Both scripts take the bundle paths as variables.
+"${PSQL[@]}" -v runtime="$RUNTIME_BUNDLE" -f sql/install.sql >/dev/null
+check "bind the body" "bound" "$("${PSQL[@]}" -v runtime="$RUNTIME_BUNDLE" -v body="$body" -f sql/bind.sql | head -1)"
 
 check "1 prints as 1" "1" "$(Q "SELECT '1'::posit16_1::text")"
 check "0.5 prints as 0.5" "0.5" "$(Q "SELECT '0.5'::posit16_1::text")"
+check "a whole number prints without an exponent" "1024" "$(Q "SELECT '1024'::posit16_1::text")"
 check "a value that is not a decimal is 22P02" "22P02" "$(STATE "SELECT 'x'::posit16_1")"
 check "control: a decimal is not an error" "ok" "$(STATE "SELECT '2.5'::posit16_1")"
 
@@ -108,5 +80,15 @@ check "btree index serves equality" "Index" \
 
 check "a missing body path is refused at bind" "bind refused" \
   "$(Q "SELECT kwabi_hook_test_bind('posit16_1', '$SCRATCH/missing.dylib')")"
+
+# The demo application, in a fresh schema so its tables do not clash with the checks above.
+demo_out="$SCRATCH/posit-demo-$major.out"
+"${PSQL[@]}" -c "CREATE SCHEMA demo; SET search_path = demo, public;" >/dev/null
+"${PSQL[@]}" -c "SET search_path = demo, public;" -f sql/demo.sql > "$demo_out" 2>&1 \
+  || { echo "  FAIL demo ran with an error:"; cat "$demo_out"; fail=1; }
+check "demo: the highest raw reading is 8 at site 2" "2|0|8" \
+  "$(awk '/== 1\./ {getline; print; exit}' "$demo_out")"
+check "demo: the posit sum loses the 1; the float sum keeps it" "983040|983040|1000001" \
+  "$(sed -n '/== 6\./,$p' "$demo_out" | grep -E '^983040\|' | head -1)"
 
 if [ "$fail" -eq 0 ]; then echo "posit16_1 passed (PG $major)"; else echo "FAILURES (PG $major)"; exit 1; fi

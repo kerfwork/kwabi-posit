@@ -29,3 +29,63 @@ jobs:
         env:
           CXX: clang++
         run: make test
+
+  # The PostgreSQL run: the type, the body, the behaviour checks and the demo, against
+  # the runtime bundle built from kerfwork/kwabi-runtime for the same major.
+  postgres:
+    name: PostgreSQL ${{ matrix.pg }} (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        pg: ["16", "17", "18"]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Check out the runtime
+        uses: actions/checkout@v4
+        with:
+          repository: kerfwork/kwabi-runtime
+          ref: main
+          path: runtime
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install PostgreSQL 16, 17, 18 (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y curl ca-certificates gnupg lsb-release
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+            -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] \
+          https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
+            | sudo tee /etc/apt/sources.list.d/pgdg.list
+          sudo apt-get update
+          sudo apt-get install -y \
+            postgresql-16 postgresql-server-dev-16 \
+            postgresql-17 postgresql-server-dev-17 \
+            postgresql-18 postgresql-server-dev-18
+
+      - name: Install PostgreSQL 16, 17, 18 (macOS)
+        if: runner.os == 'macOS'
+        run: brew install postgresql@16 postgresql@17 postgresql@18
+
+      - name: Build the runtime bundle
+        working-directory: runtime/shim
+        run: make build PG=${{ matrix.pg }}
+
+      - name: Run the PostgreSQL checks and the demo
+        env:
+          SCRATCH: ${{ runner.temp }}/posit
+          RUNTIME_BUNDLE: ${{ github.workspace }}/runtime/shim/kwabi_runtime_pg${{ matrix.pg }}.${{ runner.os == 'macOS' && 'dylib' || 'so' }}
+          DLSUFFIX: ${{ runner.os == 'macOS' && 'dylib' || 'so' }}
+          PGBIN: ${{ runner.os == 'macOS' && format('/opt/homebrew/opt/postgresql@{0}/bin', matrix.pg) || format('/usr/lib/postgresql/{0}/bin', matrix.pg) }}
+        run: |
+          mkdir -p "$SCRATCH"
+          ./posit-run.sh ${{ matrix.pg }}

@@ -71,16 +71,28 @@ Posit from_encoding(uint64_t bits) {
     return p;
 }
 
-// The shortest decimal that reads back to the same posit.
+// The shortest decimal that reads back to the same posit. Plain notation is preferred to an
+// exponent when both round-trip, so 1000000 prints as 1000000 and not 1e+06.
 std::string format_posit(const Posit& p) {
     if (p.isnar()) return "NaR";
-    char buf[40];
-    for (int precision = 1; precision <= 17; ++precision) {
-        std::snprintf(buf, sizeof buf, "%.*g", precision, static_cast<double>(p));
+    const double value = static_cast<double>(p);
+    char buf[400];
+    auto round_trips = [&](const char* text) {
         double back = 0;
-        if (parse_decimal(buf, back) && Posit(back).encoding() == p.encoding()) return buf;
+        return parse_decimal(text, back) && Posit(back).encoding() == p.encoding();
+    };
+    for (int precision = 1; precision <= 17; ++precision) {
+        std::snprintf(buf, sizeof buf, "%.*g", precision, value);
+        if (round_trips(buf)) break;
     }
-    std::snprintf(buf, sizeof buf, "%.17g", static_cast<double>(p));
+    if (std::strchr(buf, 'e') != nullptr) {
+        // Plain notation: the fewest decimals that round-trip. Posit<16,1> never needs more
+        // than a few hundred digits in plain form, so the buffer is enough.
+        for (int decimals = 0; decimals <= 60; ++decimals) {
+            std::snprintf(buf, sizeof buf, "%.*f", decimals, value);
+            if (round_trips(buf)) break;
+        }
+    }
     return buf;
 }
 
