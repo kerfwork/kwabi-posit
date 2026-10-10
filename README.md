@@ -26,7 +26,10 @@ this library supplies the bodies. Reloading a body needs no restart.
 - `src/posit16_1.cpp`: the body. It exports `kwabi_type_bodies()`.
 - `tests/body_test.cpp`: the body through its table, with no PostgreSQL. It round-trips all
   65,535 encodings except NaR through text.
-- `posit-run.sh`: the PostgreSQL check, run against a preloaded runtime bundle.
+- `sql/install.sql`, `sql/bind.sql`: the type, its operators and opclass; the body binding.
+- `sql/aggregates.sql`: `sum`, `avg`, `max`, `min`. None needs new runtime support.
+- `sql/demo.sql`: a sensor-readings application using all of the above.
+- `posit-run.sh`: the PostgreSQL checks and the demo, against a preloaded runtime bundle.
 
 ## Build and run
 

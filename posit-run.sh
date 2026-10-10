@@ -81,6 +81,10 @@ check "btree index serves equality" "Index" \
 check "a missing body path is refused at bind" "bind refused" \
   "$(Q "SELECT kwabi_hook_test_bind('posit16_1', '$SCRATCH/missing.dylib')")"
 
+"${PSQL[@]}" -v runtime="$RUNTIME_BUNDLE" -f sql/aggregates.sql >/dev/null
+check "sum, max and min over the table" "1.25|3|-2" "$(Q "SELECT sum(v)::text || '|' || max(v)::text || '|' || min(v)::text FROM tp")"
+check "avg of an empty set is NULL" "NULL" "$(Q "SELECT coalesce(avg(v)::text, 'NULL') FROM tp WHERE id > 99")"
+
 # The demo application, in a fresh schema so its tables do not clash with the checks above.
 demo_out="$SCRATCH/posit-demo-$major.out"
 "${PSQL[@]}" -c "CREATE SCHEMA demo; SET search_path = demo, public;" >/dev/null
@@ -88,6 +92,10 @@ demo_out="$SCRATCH/posit-demo-$major.out"
   || { echo "  FAIL demo ran with an error:"; cat "$demo_out"; fail=1; }
 check "demo: the highest raw reading is 8 at site 2" "2|0|8" \
   "$(awk '/== 1\./ {getline; print; exit}' "$demo_out")"
+check "demo: north summary (sum, avg, max, min of calibrated readings)" "north|14.625|3.6562|4.5|3" \
+  "$(sed -n '/== 7\./,$p' "$demo_out" | grep -E '^north\|' | head -1)"
+check "demo: south summary" "south|13.875|3.4688|4|3" \
+  "$(sed -n '/== 7\./,$p' "$demo_out" | grep -E '^south\|' | head -1)"
 check "demo: the posit sum loses the 1; the float sum keeps it" "983040|983040|1000001" \
   "$(sed -n '/== 6\./,$p' "$demo_out" | grep -E '^983040\|' | head -1)"
 

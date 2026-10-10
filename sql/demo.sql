@@ -64,3 +64,14 @@ ORDER BY r.taken;
 SELECT ('1000000'::posit16_1)::text AS stored_million,
        ('1000000'::posit16_1 + '1'::posit16_1)::text AS posit_sum,
        (1000000::float8 + 1::float8)::text AS float_sum;
+
+\echo '== 7. Per-site summary of calibrated readings (sum, avg, max, min)'
+SELECT s.site,
+       sum(r.raw * s.gain)::text AS total,
+       avg(r.raw * s.gain)::text AS mean,
+       max(r.raw * s.gain)::text AS peak,
+       min(r.raw * s.gain)::text AS low
+FROM reading r
+JOIN sensor s ON s.id = r.sensor_id
+GROUP BY s.site
+ORDER BY s.site;
