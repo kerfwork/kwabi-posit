@@ -1,3 +1,6 @@
+-- Copyright (C) 2026 Simon Janes
+-- SPDX-License-Identifier: AGPL-3.0-or-later
+
 -- Standard aggregates for posit16_1: sum, avg, max, min.
 --
 -- Run after install.sql and bind.sql. None of them needs new runtime support: sum steps

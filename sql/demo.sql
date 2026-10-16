@@ -1,3 +1,6 @@
+-- Copyright (C) 2026 Simon Janes
+-- SPDX-License-Identifier: AGPL-3.0-or-later
+
 -- A sensor-readings application on posit16_1.
 --
 -- Scenario: sites have sensors, each sensor has a calibration gain, and each reading is a

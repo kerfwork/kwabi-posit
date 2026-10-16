@@ -1,3 +1,6 @@
+-- Copyright (C) 2026 Simon Janes
+-- SPDX-License-Identifier: AGPL-3.0-or-later
+
 -- posit16_1: the type, its operators and its btree operator class.
 --
 -- Run with: psql -v runtime='/abs/path/kwabi_runtime_pgNN.<dl>' -f sql/install.sql

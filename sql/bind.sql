@@ -1,3 +1,6 @@
+-- Copyright (C) 2026 Simon Janes
+-- SPDX-License-Identifier: AGPL-3.0-or-later
+
 -- Binds this library as the body of posit16_1. Run after install.sql.
 --
 -- kwabi_hook_test_bind is a test function in the runtime bundle. A production binder is
